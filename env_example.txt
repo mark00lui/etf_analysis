@@ -1,0 +1,20 @@
+# Supabase 資料庫設定
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_KEY=your_supabase_anon_key_here
+
+# MongoDB 設定 (Docker)
+MONGODB_URI=mongodb://localhost:27017/
+MONGODB_DB=etf_analysis
+
+# 爬蟲設定
+SCRAPER_TIMEOUT=30
+SCRAPER_RETRY_TIMES=3
+SCRAPER_DELAY=2
+
+# 日誌設定
+LOG_LEVEL=INFO
+LOG_FILE_PATH=logs/
+
+# 排程設定
+SCHEDULE_TIME=21:00
+SCHEDULE_TIMEZONE=Asia/Taipei
