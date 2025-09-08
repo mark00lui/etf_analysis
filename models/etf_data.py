@@ -108,17 +108,29 @@ class ETFDataManager:
     
     # ==================== 持股資料操作 ====================
     
-    def save_holdings(self, etf_ticker: str, holdings: List[Dict[str, Any]], date: str = None) -> bool:
-        """儲存持股資料"""
+    def save_holdings(self, etf_ticker: str, holdings: List[Dict[str, Any]], date: str = None, force_update: bool = False) -> bool:
+        """儲存持股資料 - 智能重複檢查版本"""
         try:
             if date is None:
                 date = datetime.now().strftime('%Y-%m-%d')
             
-            # 先刪除該ETF該日期的舊資料
-            self.mongodb.holdings.delete_many({
+            # 檢查是否已存在相同的數據
+            existing_count = self.mongodb.holdings.count_documents({
                 "etf_ticker": etf_ticker,
                 "date": date
             })
+            
+            if existing_count > 0 and not force_update:
+                self.logger.info(f"ETF {etf_ticker} 在 {date} 的數據已存在 ({existing_count} 筆)，跳過寫入")
+                return True
+            
+            # 如果強制更新，先刪除舊數據
+            if force_update and existing_count > 0:
+                delete_result = self.mongodb.holdings.delete_many({
+                    "etf_ticker": etf_ticker,
+                    "date": date
+                })
+                self.logger.info(f"強制更新：已刪除 {delete_result.deleted_count} 筆舊數據")
             
             # 準備新資料
             holdings_data = []
@@ -138,7 +150,8 @@ class ETFDataManager:
             # 批量插入新資料
             if holdings_data:
                 result = self.mongodb.holdings.insert_many(holdings_data)
-                self.logger.info(f"持股資料儲存成功: {etf_ticker} - {date}, 共 {len(result.inserted_ids)} 筆")
+                action = "更新" if force_update and existing_count > 0 else "儲存"
+                self.logger.info(f"持股資料{action}成功: {etf_ticker} - {date}, 共 {len(result.inserted_ids)} 筆")
                 return True
             else:
                 self.logger.warning(f"沒有持股資料需要儲存: {etf_ticker} - {date}")
@@ -295,3 +308,66 @@ class ETFDataManager:
         except Exception as e:
             self.logger.error(f"取得最新日期失敗: {e}")
             return None
+    
+    def check_duplicate_holdings(self, etf_ticker: str, holdings: List[Dict[str, Any]], date: str) -> Dict[str, Any]:
+        """檢查持股數據是否重複"""
+        try:
+            # 獲取現有的持股數據
+            existing_holdings = list(self.mongodb.holdings.find({
+                "etf_ticker": etf_ticker,
+                "date": date
+            }))
+            
+            if not existing_holdings:
+                return {
+                    "is_duplicate": False,
+                    "existing_count": 0,
+                    "new_count": len(holdings),
+                    "message": "無現有數據，可以寫入"
+                }
+            
+            # 比較數據
+            existing_dict = {}
+            for holding in existing_holdings:
+                key = f"{holding['stock_code']}_{holding['stock_name']}_{holding['weight']}_{holding['shares']}"
+                existing_dict[key] = holding
+            
+            new_dict = {}
+            for holding in holdings:
+                key = f"{holding['stock_code']}_{holding['stock_name']}_{holding['weight']}_{holding['shares']}"
+                new_dict[key] = holding
+            
+            # 檢查是否完全相同
+            if existing_dict == new_dict:
+                return {
+                    "is_duplicate": True,
+                    "existing_count": len(existing_holdings),
+                    "new_count": len(holdings),
+                    "message": "數據完全相同，跳過寫入"
+                }
+            
+            # 檢查部分重複
+            common_keys = set(existing_dict.keys()) & set(new_dict.keys())
+            if len(common_keys) == len(existing_dict) and len(common_keys) == len(new_dict):
+                return {
+                    "is_duplicate": True,
+                    "existing_count": len(existing_holdings),
+                    "new_count": len(holdings),
+                    "message": "數據完全相同，跳過寫入"
+                }
+            
+            return {
+                "is_duplicate": False,
+                "existing_count": len(existing_holdings),
+                "new_count": len(holdings),
+                "common_count": len(common_keys),
+                "message": f"數據有差異，現有{len(existing_holdings)}筆，新{len(holdings)}筆，共同{len(common_keys)}筆"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"檢查重複數據時發生錯誤: {e}")
+            return {
+                "is_duplicate": False,
+                "error": str(e),
+                "message": "檢查失敗，建議跳過"
+            }
