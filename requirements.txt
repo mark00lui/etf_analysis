@@ -15,6 +15,10 @@ dnspython==2.4.2
 selenium==4.15.2
 webdriver-manager==4.0.1
 
+# 排程器套件
+schedule==1.2.0
+apscheduler==3.10.4
+
 # 其他工具
 fake-useragent==1.4.0
 urllib3>=2.0.0
